@@ -27,7 +27,9 @@ float temperature = 0.0;
 float humidity = 0.0;
 float pressure = 0.0;
 
-// HTML als const char String im Flash gespeichert [web:20][web:23]
+// ============================================
+// INLINE HTML - Im Flash gespeichert
+// ============================================
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="de">
@@ -39,7 +41,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #041978041978 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -73,11 +75,11 @@ const char index_html[] PROGMEM = R"rawliteral(
             margin-top: 20px;
         }
         .sensor-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #041978 0%, #764ba2 100%);
             border-radius: 15px;
             padding: 25px;
             color: white;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 15px rgba(243, 242, 242, 0.1);
             transition: transform 0.3s ease;
         }
         .sensor-card:hover { transform: translateY(-5px); }
@@ -98,19 +100,16 @@ const char index_html[] PROGMEM = R"rawliteral(
         </div>
         <div class="sensor-grid">
             <div class="sensor-card">
-                <div class="sensor-icon">🌡️</div>
                 <div class="sensor-name">Temperatur</div>
                 <div class="sensor-value" id="temperature">--</div>
-                <div class="sensor-unit">°C</div>
+                <div class="sensor-unit">C</div>
             </div>
             <div class="sensor-card">
-                <div class="sensor-icon">💧</div>
                 <div class="sensor-name">Luftfeuchtigkeit</div>
                 <div class="sensor-value" id="humidity">--</div>
                 <div class="sensor-unit">%</div>
             </div>
             <div class="sensor-card">
-                <div class="sensor-icon">🌪️</div>
                 <div class="sensor-name">Luftdruck</div>
                 <div class="sensor-value" id="pressure">--</div>
                 <div class="sensor-unit">hPa</div>
@@ -193,7 +192,7 @@ void setup() {
     Serial.print("IP-Adresse: ");
     Serial.println(WiFi.localIP());
 
-    // Route für die Hauptseite - HTML direkt senden [web:24]
+    // Route für die Hauptseite - INLINE HTML
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(200, "text/html", index_html);
     });
@@ -210,7 +209,6 @@ void setup() {
         
         String response;
         serializeJson(doc, response);
-        Serial.println("New Data sent...");
         
         request->send(200, "application/json", response);
     });
@@ -221,7 +219,7 @@ void setup() {
     
     server.begin();
     Serial.println("HTTP-Server gestartet");
-    Serial.println("Öffne im Browser: http://" + WiFi.localIP().toString());
+    Serial.println("Oeffne im Browser: http://" + WiFi.localIP().toString());
 }
 
 void loop() {
