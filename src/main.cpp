@@ -41,7 +41,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #041978041978 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -49,15 +49,16 @@ const char index_html[] PROGMEM = R"rawliteral(
             padding: 20px;
         }
         .container {
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(26, 26, 46, 0.6);
             border-radius: 20px;
             padding: 30px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            box-shadow: -5px -5px 40px rgba(209, 208, 208, 0.3),
+                        inset 0 0 0 1px rgba(255, 255, 255, 0.2);
             max-width: 800px;
             width: 100%;
         }
-        h1 { color: #333; text-align: center; margin-bottom: 10px; font-size: 2em; }
-        .status { text-align: center; margin-bottom: 30px; color: #666; font-size: 0.9em; }
+        h1 { color: #fff; text-align: center; margin-bottom: 10px; font-size: 2em; }
+        .status { text-align: center; margin-bottom: 30px; color: #aaa; font-size: 0.9em; }
         .status-indicator {
             display: inline-block;
             width: 10px;
@@ -68,6 +69,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             animation: pulse 2s infinite;
         }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
         .sensor-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -75,19 +77,35 @@ const char index_html[] PROGMEM = R"rawliteral(
             margin-top: 20px;
         }
         .sensor-card {
-            background: linear-gradient(135deg, #041978 0%, #764ba2 100%);
-            border-radius: 15px;
+            border-radius: 20px;
             padding: 25px;
             color: white;
-            box-shadow: 0 4px 15px rgba(243, 242, 242, 0.1);
+            box-shadow: -3px -3px 10px rgba(209, 208, 208, 0.3),
+                        inset 0 0 0 1px rgba(255, 255, 255, 0.2);
             transition: transform 0.3s ease;
         }
-        .sensor-card:hover { transform: translateY(-5px); }
+        
+        .sensor-card:nth-child(1) {
+            background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+        }
+        
+        .sensor-card:nth-child(2) {
+            background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%);
+        }
+        
+        .sensor-card:nth-child(3) {
+            background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+        }
+        
+        .sensor-card:hover { 
+            transform: translateY(-3px);
+        }
+        
         .sensor-icon { font-size: 2.5em; margin-bottom: 10px; }
-        .sensor-name { font-size: 0.9em; opacity: 0.9; margin-bottom: 5px; }
+        .sensor-name { font-size: 1.0em; opacity: 0.9; margin-bottom: 5px; }
         .sensor-value { font-size: 2.2em; font-weight: bold; margin: 10px 0; }
-        .sensor-unit { font-size: 0.8em; opacity: 0.8; }
-        .last-update { text-align: center; margin-top: 20px; color: #666; font-size: 0.85em; }
+        .sensor-unit { font-size: 2.2em; font-weight: bold;opacity: 0.9; display: inline; margin-left: 5px;}
+        .last-update { text-align: center; margin-top: 20px; color: #aaa; font-size: 0.85em; }
         @media (max-width: 600px) { .sensor-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -101,18 +119,15 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="sensor-grid">
             <div class="sensor-card">
                 <div class="sensor-name">Temperatur</div>
-                <div class="sensor-value" id="temperature">--</div>
-                <div class="sensor-unit">C</div>
+                <div class="sensor-value"><span id="temperature">--</span>°C</div>
             </div>
             <div class="sensor-card">
                 <div class="sensor-name">Luftfeuchtigkeit</div>
-                <div class="sensor-value" id="humidity">--</div>
-                <div class="sensor-unit">%</div>
+                <div class="sensor-value"><span id="humidity">--</span>%</div>
             </div>
             <div class="sensor-card">
                 <div class="sensor-name">Luftdruck</div>
-                <div class="sensor-value" id="pressure">--</div>
-                <div class="sensor-unit">hPa</div>
+                <div class="sensor-value"><span id="pressure">--</span> hPa</div>
             </div>
         </div>
         <div class="last-update">
