@@ -1,0 +1,594 @@
+// html_page.h - KOMPLETTES HTML mit SD-Chart Kachel
+#ifndef HTML_PAGE_H
+#define HTML_PAGE_H
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Home Dashboard</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <script>
+        let sdChart = null;
+        let chartData = [];
+
+        function zeitAktualisieren() {
+            const jetzt = new Date();
+            const optionen = { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric'
+            };
+            document.getElementById('zeit').innerHTML = jetzt.toLocaleDateString('de-DE', optionen);
+        }
+
+        function updateSensorData() {
+            fetch('/sensors')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('temperature').textContent = data.temperature.toFixed(1);
+                document.getElementById('humidity').textContent = data.humidity.toFixed(1);
+                document.getElementById('pressure').textContent = data.pressure.toFixed(1);
+                
+                document.getElementById('wetter').textContent = data.weather;
+                
+                const now = new Date();
+                document.getElementById('last-update').textContent = now.toLocaleTimeString('de-DE');
+                
+                document.querySelector('.status-indicator').style.backgroundColor = '#4CAF50';
+                document.getElementById('status-text').textContent = 'Verbunden';
+            })
+            .catch(error => {
+                console.error('Fehler:', error);
+                document.getElementById('temperature').textContent = '--';
+                document.getElementById('humidity').textContent = '--';
+                document.getElementById('pressure').textContent = '--';
+                document.getElementById('wetter').textContent = 'Nicht verfügbar';
+                
+                document.querySelector('.status-indicator').style.backgroundColor = '#f44336';
+                document.getElementById('status-text').textContent = 'Verbindungsfehler';
+            });
+        }
+
+        function updateSDChart() {
+            fetch('/sd-data')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'ok' && data.data) {
+                    chartData = data.data.trim().split('\n').map(line => {
+                        let parts = line.split(';');
+                        if (parts.length >= 4) {
+                            return {
+                                ts: parseInt(parts[0]) || 0,
+                                temp: parseFloat(parts[1]) || 0,
+                                hum: parseFloat(parts[2]) || 0,
+                                press: parseFloat(parts[3]) || 0
+                            };
+                        }
+                        return null;
+                    }).filter(row => row && !isNaN(row.temp));
+
+                    if (chartData.length > 0) {
+                        document.getElementById('sdStats').innerHTML = 
+                            `⌀ ${chartData.length} Werte | ` +
+                            `🌡️ ${Math.min(...chartData.map(d=>d.temp)).toFixed(1)}° - ` +
+                            `${Math.max(...chartData.map(d=>d.temp)).toFixed(1)}°C | ` +
+                            `💧 ${Math.min(...chartData.map(d=>d.hum)).toFixed(0)} - ` +
+                            `${Math.max(...chartData.map(d=>d.hum)).toFixed(0)}%`;
+
+                        updateChart();
+                    }
+                } else {
+                    document.getElementById('sdStats').innerHTML = 'Keine SD-Daten';
+                }
+            })
+            .catch(err => {
+                document.getElementById('sdStats').innerHTML = 'SD nicht verfügbar';
+            });
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('sdChart').getContext('2d');
+            
+            if (sdChart) sdChart.destroy();
+            
+            if (chartData.length === 0) return;
+            
+            sdChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartData.map((d, i) => {
+                        let hours = Math.floor(d.ts / 3600000);
+                        let mins = Math.floor((d.ts % 3600000) / 60000);
+                        return `${hours}h${mins.toString().padStart(2,'0')}`;
+                    }),
+                    datasets: [{
+                        label: 'Temperatur (°C)',
+                        data: chartData.map(d => d.temp),
+                        borderColor: '#ff6384',
+                        backgroundColor: 'rgba(255,99,132,0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 0,
+                        borderWidth: 3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(0,0,0,0.8)',
+                            titleColor: '#fff',
+                            bodyColor: '#fff'
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            display: true,
+                            ticks: { color: '#ccc', maxTicksLimit: 10 },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        },
+                        y: { 
+                            ticks: { color: '#ccc' },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                }
+            });
+        }
+
+        window.onload = function() {
+            zeitAktualisieren();
+            updateSensorData();
+            updateSDChart();
+            
+            setInterval(zeitAktualisieren, 60000);
+            setInterval(updateSensorData, 10000);
+            setInterval(updateSDChart, 30000);
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            padding: 40px 20px;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before,
+        body::after {
+            content: '';
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.15;
+            animation: float 20s infinite ease-in-out;
+            z-index: 0;
+        }
+
+        body::before {
+            width: 500px;
+            height: 500px;
+            background: #667eea;
+            top: -200px;
+            left: -200px;
+            animation-delay: 0s;
+        }
+
+        body::after {
+            width: 400px;
+            height: 400px;
+            background: #764ba2;
+            bottom: -150px;
+            right: -150px;
+            animation-delay: 10s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(100px, -100px) scale(1.1); }
+            66% { transform: translate(-50px, 100px) scale(0.9); }
+        }
+
+        .content-wrapper {
+            max-width: 1000px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .welcome-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 30px;
+            padding: 50px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            margin-bottom: 30px;
+            transition: all 0.3s ease;
+            animation: slideUp 0.6s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .welcome-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        h1 {
+            font-size: 3em;
+            font-weight: 700;
+            margin-bottom: 15px;
+            background: linear-gradient(135deg, #ffffff 0%, #a8b2ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            font-weight: 300;
+            opacity: 0.8;
+            margin-bottom: 20px;
+            line-height: 1.6;
+            color: #d0d0e0;
+        }
+
+        .time-display {
+            font-size: 0.95em;
+            opacity: 0.7;
+            margin-bottom: 25px;
+            font-weight: 400;
+            color: #b0b0c0;
+        }
+
+        .weather-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-size: 1.2em;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .weather-icon {
+            font-size: 1.5em;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            animation: slideUp 0.7s ease-out;
+        }
+
+        h2 {
+            font-size: 1.5em;
+            font-weight: 600;
+            opacity: 0.9;
+            color: #e0e0f0;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95em;
+            color: #b0b0c0;
+            margin-bottom: 20px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #4CAF50;
+            animation: pulse 2s infinite;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .dropdown {
+            padding: 12px 20px;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            color: white;
+            font-size: 1em;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .dropdown:hover {
+            background: rgba(255, 255, 255, 0.12);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .dropdown:focus {
+            outline: none;
+            border-color: rgba(102, 126, 234, 0.6);
+        }
+
+        .dropdown option {
+            background: #1a1a2e;
+            color: white;
+        }
+
+        /* 🔥 Grid für SD-Kachel */
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 25px;
+            animation: slideUp 0.8s ease-out;
+        }
+
+        @media (min-width: 769px) {
+            .sensor-grid {
+                grid-template-columns: repeat(3, 1fr);
+                grid-template-rows: auto auto;
+            }
+            .sensor-card.full-width {
+                grid-column: 1 / -1;
+                grid-row: 2;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .sensor-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto auto;
+            }
+            .sensor-card.full-width {
+                grid-column: 1;
+                grid-row: 4;
+            }
+        }
+
+        .sensor-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 25px;
+            padding: 35px 30px;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sensor-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.6), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.6s ease;
+        }
+
+        .sensor-card:hover::before {
+            transform: translateX(100%);
+        }
+
+        .sensor-card:hover {
+            transform: translateY(-10px) scale(1.02);
+            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.5);
+            border-color: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .sensor-card:nth-child(1) {
+            background: linear-gradient(135deg, rgba(146, 114, 245, 0.2) 0%, rgba(146, 114, 245, 0.05) 100%);
+        }
+        
+        .sensor-card:nth-child(2) {
+            background: linear-gradient(135deg, rgba(17, 179, 248, 0.2) 0%, rgba(17, 179, 248, 0.05) 100%);
+        }
+        
+        .sensor-card:nth-child(3) {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.05) 100%);
+        }
+
+        /* 🔥 SD-Chart Kachel */
+        .sensor-card.full-width {
+            background: linear-gradient(135deg, rgba(255,193,7,0.2) 0%, rgba(255,193,7,0.05) 100%);
+            grid-column: 1 / -1 !important;
+        }
+
+        .sensor-card.full-width canvas {
+            max-height: 180px;
+            border-radius: 15px;
+            margin: 15px 0;
+        }
+
+        .sensor-icon {
+            font-size: 2.5em;
+            margin-bottom: 15px;
+            opacity: 0.9;
+        }
+
+        .sensor-label {
+            font-size: 0.95em;
+            opacity: 0.7;
+            font-weight: 400;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #b0b0c0;
+        }
+
+        .sensor-value {
+            font-size: 2.2em;
+            font-weight: 700;
+            margin: 10px 0;
+            background: linear-gradient(135deg, #ffffff 0%, #a8b2ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .last-update {
+            text-align: center;
+            margin-top: 30px;
+            color: #90909f;
+            font-size: 0.9em;
+            opacity: 0.7;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 20px 15px;
+            }
+
+            .welcome-card {
+                padding: 30px 25px;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+
+            .sensor-grid {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+
+            .sensor-card {
+                padding: 25px 20px;
+            }
+
+            .dashboard-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="content-wrapper">
+        <!-- Welcome Card -->
+        <div class="welcome-card">
+            <h1>Hallo Leni & Manu! 👋</h1>
+            <div class="time-display" id="zeit">Lädt...</div>
+            <p class="subtitle">
+                Willkommen zu Hause. Heute wird ein super Tag! Macht es euch gemütlich.
+            </p>
+            <div class="weather-badge">
+                <span class="weather-icon">🌤️</span>
+                <span id="wetter">Lädt...</span>
+            </div>
+        </div>
+
+        <!-- Dashboard Header -->
+        <div class="dashboard-header">
+            <h2>📊 ESP32 Dashboard</h2>
+            <select class="dropdown" id="raumAuswahl">
+                <option value="alle">Alle Räume</option>
+                <option value="wohnzimmer">Wohnzimmer</option>
+                <option value="schlafzimmer">Schlafzimmer</option>
+                <option value="kueche">Küche</option>
+                <option value="bad">Badezimmer</option>
+            </select>
+        </div>
+
+        <!-- Status Indicator -->
+        <div class="status">
+            <span class="status-indicator"></span>
+            <span id="status-text">Verbunden</span>
+        </div>
+
+        <!-- Sensor Cards Grid -->
+        <div class="sensor-grid">
+            <div class="sensor-card">
+                <div class="sensor-icon">🌡️</div>
+                <div class="sensor-label">Temperatur</div>
+                <div class="sensor-value"><span id="temperature">--</span>°C</div>
+            </div>
+
+            <div class="sensor-card">
+                <div class="sensor-icon">💧</div>
+                <div class="sensor-label">Luftfeuchtigkeit</div>
+                <div class="sensor-value"><span id="humidity">--</span>%</div>
+            </div>
+
+            <div class="sensor-card">
+                <div class="sensor-icon">🌬️</div>
+                <div class="sensor-label">Luftdruck</div>
+                <div class="sensor-value"><span id="pressure">--</span> hPa</div>
+            </div>
+
+            <!-- 🔥 SD-DATEN KACHEL (letzte 48h) -->
+            <div class="sensor-card full-width">
+                <div class="sensor-icon">📊</div>
+                <div class="sensor-label">SD-Log (letzte Messungen)</div>
+                <canvas id="sdChart"></canvas>
+                <div id="sdStats" style="font-size:1.1em;margin-top:10px;font-weight:500;color:#ffc107;">
+                    Lädt...
+                </div>
+            </div>
+        </div>
+
+        <!-- Last Update -->
+        <div class="last-update">
+            Letzte Aktualisierung: <span id="last-update">--</span>
+        </div>
+    </div>
+</body>
+</html>
+)rawliteral";
+
+#endif

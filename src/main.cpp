@@ -1,14 +1,26 @@
 #include <Arduino.h>
+
+// Web libaries
 #include "secrets.h"
-#include <Wire.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BMP280.h>
-#include <Adafruit_AHTX0.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "webserver.h"
 
+// Sensor libraries
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
+#include <Adafruit_AHTX0.h>
+
+// SD Card
+#include "FS.h"
+#include <SD.h>
+#include <SPI.h>
+
+
+// Definitions for Sensors
 #define SDA_PIN 8
 #define SCL_PIN 9
 
@@ -19,478 +31,28 @@ float tempOffset = 0.0;
 float humScale   = 1.0;
 float humOffset  = 0.0;
 
+float temperature = 0.0;
+float humidity = 0.0;
+float pressure = 0.0;
+
+
+// WiFi credentials
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
 AsyncWebServer server(80);
 
-float temperature = 0.0;
-float humidity = 0.0;
-float pressure = 0.0;
+// SD Card
+#define SD_CS 10
+#define SD_SCK 12
+#define SD_MISO 13
+#define SD_MOSI 11
 
-// Wetterdaten
+// Weather API
 String weatherDescription = "Lädt...";
 float weatherTemp = 0.0;
 unsigned long lastWeatherUpdate = 0;
 const unsigned long weatherUpdateInterval = 600000; // 10 Minuten
-
-// ============================================
-// INLINE HTML - Im Flash gespeichert
-// ============================================
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Home Dashboard</title>
-    
-    <script>
-        function zeitAktualisieren() {
-            const jetzt = new Date();
-            const optionen = { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric'
-            };
-            document.getElementById('zeit').innerHTML = jetzt.toLocaleDateString('de-DE', optionen);
-        }
-
-        function updateSensorData() {
-            fetch('/sensors')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('temperature').textContent = data.temperature.toFixed(1);
-                    document.getElementById('humidity').textContent = data.humidity.toFixed(1);
-                    document.getElementById('pressure').textContent = data.pressure.toFixed(1);
-                    
-                    // Wetter vom ESP32
-                    document.getElementById('wetter').textContent = data.weather;
-                    
-                    const now = new Date();
-                    document.getElementById('last-update').textContent = now.toLocaleTimeString('de-DE');
-                    
-                    // Status Indicator auf grün setzen
-                    document.querySelector('.status-indicator').style.backgroundColor = '#4CAF50';
-                    document.getElementById('status-text').textContent = 'Verbunden';
-                })
-                .catch(error => {
-                    console.error('Fehler:', error);
-                    document.getElementById('temperature').textContent = '--';
-                    document.getElementById('humidity').textContent = '--';
-                    document.getElementById('pressure').textContent = '--';
-                    document.getElementById('wetter').textContent = 'Nicht verfügbar';
-                    
-                    // Status Indicator auf rot setzen
-                    document.querySelector('.status-indicator').style.backgroundColor = '#f44336';
-                    document.getElementById('status-text').textContent = 'Verbindungsfehler';
-                });
-        }
-
-        window.onload = function() {
-            zeitAktualisieren();
-            updateSensorData();
-            
-            setInterval(zeitAktualisieren, 60000);  // Jede Minute
-            setInterval(updateSensorData, 10000);   // Alle 10 Sekunden
-        }
-    </script>
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-            color: #ffffff;
-            font-family: 'Inter', sans-serif;
-            padding: 40px 20px;
-            min-height: 100vh;
-            position: relative;
-            overflow-x: hidden;
-        }
-
-        /* Animated Background Blur Circles */
-        body::before,
-        body::after {
-            content: '';
-            position: fixed;
-            border-radius: 50%;
-            filter: blur(120px);
-            opacity: 0.15;
-            animation: float 20s infinite ease-in-out;
-            z-index: 0;
-        }
-
-        body::before {
-            width: 500px;
-            height: 500px;
-            background: #667eea;
-            top: -200px;
-            left: -200px;
-            animation-delay: 0s;
-        }
-
-        body::after {
-            width: 400px;
-            height: 400px;
-            background: #764ba2;
-            bottom: -150px;
-            right: -150px;
-            animation-delay: 10s;
-        }
-
-        @keyframes float {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(100px, -100px) scale(1.1); }
-            66% { transform: translate(-50px, 100px) scale(0.9); }
-        }
-
-        .content-wrapper {
-            max-width: 1000px;
-            margin: 0 auto;
-            position: relative;
-            z-index: 1;
-        }
-
-        /* Glassmorphism Welcome Card */
-        .welcome-card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 30px;
-            padding: 50px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            margin-bottom: 30px;
-            transition: all 0.3s ease;
-            animation: slideUp 0.6s ease-out;
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .welcome-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-            border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        h1 {
-            font-size: 3em;
-            font-weight: 700;
-            margin-bottom: 15px;
-            background: linear-gradient(135deg, #ffffff 0%, #a8b2ff 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .subtitle {
-            font-size: 1.1em;
-            font-weight: 300;
-            opacity: 0.8;
-            margin-bottom: 20px;
-            line-height: 1.6;
-            color: #d0d0e0;
-        }
-
-        .time-display {
-            font-size: 0.95em;
-            opacity: 0.7;
-            margin-bottom: 25px;
-            font-weight: 400;
-            color: #b0b0c0;
-        }
-
-        .weather-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            background: rgba(255, 255, 255, 0.08);
-            backdrop-filter: blur(10px);
-            padding: 12px 24px;
-            border-radius: 50px;
-            font-size: 1.2em;
-            font-weight: 500;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .weather-icon {
-            font-size: 1.5em;
-        }
-
-        /* Dashboard Header */
-        .dashboard-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            animation: slideUp 0.7s ease-out;
-        }
-
-        h2 {
-            font-size: 1.5em;
-            font-weight: 600;
-            opacity: 0.9;
-            color: #e0e0f0;
-        }
-
-        /* Status Indicator */
-        .status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.95em;
-            color: #b0b0c0;
-            margin-bottom: 20px;
-        }
-
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: #4CAF50;
-            animation: pulse 2s infinite;
-            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        /* Modern Dropdown */
-        .dropdown {
-            padding: 12px 20px;
-            background: rgba(255, 255, 255, 0.08);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            color: white;
-            font-size: 1em;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .dropdown:hover {
-            background: rgba(255, 255, 255, 0.12);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-            border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .dropdown:focus {
-            outline: none;
-            border-color: rgba(102, 126, 234, 0.6);
-        }
-
-        .dropdown option {
-            background: #1a1a2e;
-            color: white;
-        }
-
-        /* Sensor Grid */
-        .sensor-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 25px;
-            animation: slideUp 0.8s ease-out;
-        }
-
-        /* Modern Sensor Cards */
-        .sensor-card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 25px;
-            padding: 35px 30px;
-            text-align: center;
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .sensor-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.6), transparent);
-            transform: translateX(-100%);
-            transition: transform 0.6s ease;
-        }
-
-        .sensor-card:hover::before {
-            transform: translateX(100%);
-        }
-
-        .sensor-card:hover {
-            transform: translateY(-10px) scale(1.02);
-            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.5);
-            border-color: rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .sensor-card:nth-child(1) {
-            background: linear-gradient(135deg, rgba(146, 114, 245, 0.2) 0%, rgba(146, 114, 245, 0.05) 100%);
-        }
-        
-        .sensor-card:nth-child(2) {
-            background: linear-gradient(135deg, rgba(17, 179, 248, 0.2) 0%, rgba(17, 179, 248, 0.05) 100%);
-        }
-        
-        .sensor-card:nth-child(3) {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.05) 100%);
-        }
-
-        .sensor-icon {
-            font-size: 2.5em;
-            margin-bottom: 15px;
-            opacity: 0.9;
-        }
-
-        .sensor-label {
-            font-size: 0.95em;
-            opacity: 0.7;
-            font-weight: 400;
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #b0b0c0;
-        }
-
-        .sensor-value {
-            font-size: 2.2em;
-            font-weight: 700;
-            margin: 10px 0;
-            background: linear-gradient(135deg, #ffffff 0%, #a8b2ff 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .last-update {
-            text-align: center;
-            margin-top: 30px;
-            color: #90909f;
-            font-size: 0.9em;
-            opacity: 0.7;
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            body {
-                padding: 20px 15px;
-            }
-
-            .welcome-card {
-                padding: 30px 25px;
-            }
-
-            h1 {
-                font-size: 2em;
-            }
-
-            .sensor-grid {
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                gap: 15px;
-            }
-
-            .sensor-card {
-                padding: 25px 20px;
-            }
-
-            .dashboard-header {
-                flex-direction: column;
-                gap: 15px;
-                align-items: flex-start;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="content-wrapper">
-        <!-- Welcome Card -->
-        <div class="welcome-card">
-            <h1>Hallo Leni & Manu! 👋</h1>
-            <div class="time-display" id="zeit">Lädt...</div>
-            <p class="subtitle">
-                Willkommen zu Hause. Heute wird ein super Tag! Macht es euch gemütlich.
-            </p>
-            <div class="weather-badge">
-                <span class="weather-icon">🌤️</span>
-                <span id="wetter">Lädt...</span>
-            </div>
-        </div>
-
-        <!-- Dashboard Header -->
-        <div class="dashboard-header">
-            <h2>📊 ESP32 Dashboard</h2>
-            <select class="dropdown" id="raumAuswahl">
-                <option value="alle">Alle Räume</option>
-                <option value="wohnzimmer">Wohnzimmer</option>
-                <option value="schlafzimmer">Schlafzimmer</option>
-                <option value="kueche">Küche</option>
-                <option value="bad">Badezimmer</option>
-            </select>
-        </div>
-
-        <!-- Status Indicator -->
-        <div class="status">
-            <span class="status-indicator"></span>
-            <span id="status-text">Verbunden</span>
-        </div>
-
-        <!-- Sensor Cards Grid -->
-        <div class="sensor-grid">
-            <div class="sensor-card">
-                <div class="sensor-icon">🌡️</div>
-                <div class="sensor-label">Temperatur</div>
-                <div class="sensor-value"><span id="temperature">--</span>°C</div>
-            </div>
-
-            <div class="sensor-card">
-                <div class="sensor-icon">💧</div>
-                <div class="sensor-label">Luftfeuchtigkeit</div>
-                <div class="sensor-value"><span id="humidity">--</span>%</div>
-            </div>
-
-            <div class="sensor-card">
-                <div class="sensor-icon">🌬️</div>
-                <div class="sensor-label">Luftdruck</div>
-                <div class="sensor-value"><span id="pressure">--</span> hPa</div>
-            </div>
-        </div>
-
-        <!-- Last Update -->
-        <div class="last-update">
-            Letzte Aktualisierung: <span id="last-update">--</span>
-        </div>
-    </div>
-</body>
-</html>
-)rawliteral";
 
 // Wetterdaten vom ESP32 abrufen
 void getWeatherData() {
@@ -534,6 +96,24 @@ void getWeatherData() {
     }
 }
 
+void logToSD() {
+    if (!SD.begin(SD_CS)) {
+        Serial.println("SD-Karte konnte nicht initialisiert werden!");
+        return;
+    }
+
+    File logFile = SD.open("/sensor_log.csv", FILE_APPEND);
+    if (logFile) {
+        String dataString = String(millis()) + ";" + String(temperature) + ";" + String(humidity) + ";" + String(pressure) + "\n";
+        logFile.print(dataString);
+        logFile.close();
+        Serial.println("Daten in SD-Karte geloggt");
+    } 
+    else {
+        Serial.println("Fehler beim Öffnen der Log-Datei!");
+    }
+}
+
 void getSensorData() {
     sensors_event_t humEvent, tempEvent;
     aht.getEvent(&humEvent, &tempEvent);
@@ -543,9 +123,41 @@ void getSensorData() {
     pressure = bmp.readPressure() / 100.0F;
 
     Serial.print("Temp: "); Serial.print(temperature);
-    Serial.print("°C | Hum: "); Serial.print(humidity);
+    Serial.print("C | Hum: "); Serial.print(humidity);
     Serial.print("% | Pressure: "); Serial.print(pressure);
     Serial.println(" hPa");
+
+    logToSD();
+}
+
+void setupSD() {
+    Serial.println("Initialising SD Card...");
+    
+    // Open SPI bus
+    SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+    delay(100);
+    
+    if (!SD.begin(SD_CS)) {
+        Serial.println("Couldn't mount SD Card!");
+        return;
+    }
+    
+    Serial.println("SD Card Ready!");
+    
+    // 2. Check data log file
+    String fileName = "/sensor_log.csv";
+    if (SD.exists(fileName.c_str())) {
+        Serial.println("Log-file already exists.");
+    } else {
+        File logFile = SD.open(fileName.c_str(), FILE_WRITE);
+        if (logFile) {
+            logFile.println("Timestamp;Temperature;Humidity;Pressure");
+            logFile.close();
+            Serial.println("Created log-file.");
+        } else {
+            Serial.println("Error creating log-file!");
+        }
+    }
 }
 
 void setup() {
@@ -583,6 +195,9 @@ void setup() {
     Serial.print("IP-Adresse: ");
     Serial.println(WiFi.localIP());
 
+    // SD-Karte initialisieren
+    setupSD();
+
     // Erste Wetterdaten abrufen
     getWeatherData();
 
@@ -618,6 +233,37 @@ void setup() {
         request->send(404, "text/plain", "Nicht gefunden");
     });
     
+    server.on("/sd-data", HTTP_GET, [](AsyncWebServerRequest *request) {
+        if (!SD.cardType()) {
+            request->send(500, "application/json", "{\"error\":\"SD nicht verfügbar\"}");
+            return;
+        }
+
+        // Letzte 100 Zeilen lesen (≈48h bei 30s Intervall)
+        String csvData = "";
+        File file = SD.open("/sensor_log.csv", FILE_READ);
+        int lineCount = 0;
+
+        if (file) {
+            while (file.available() && lineCount < 100) {
+                String line = file.readStringUntil('\n');
+                if (line.startsWith("Timestamp") || line.length() < 10) continue;
+                csvData += line + "\n";
+                lineCount++;
+            }
+            file.close();
+        }
+
+        JsonDocument doc;
+        doc["status"] = "ok";
+        doc["lines"] = lineCount;
+        doc["data"] = csvData;  // Roh-CSV für Chart
+
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
+
     server.begin();
     Serial.println("HTTP-Server gestartet");
     Serial.println("Oeffne im Browser: http://" + WiFi.localIP().toString());
