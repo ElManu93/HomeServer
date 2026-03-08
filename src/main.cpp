@@ -59,7 +59,7 @@ const unsigned long weatherUpdateInterval = 600000; // 10 Minuten
 String currentTime = "Lädt...";
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 3600;
-const int daylightOffset_sec = 3600;
+const int daylightOffset_sec = 0;
 
 // Wetterdaten vom ESP32 abrufen
 void getWeatherData() {
