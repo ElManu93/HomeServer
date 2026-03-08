@@ -15,7 +15,8 @@ const char index_html[] PROGMEM = R"rawliteral(
     <script>
         let sdChart = null;
         let chartData = [];
-
+        let currentView = 'alle';
+    
         function zeitAktualisieren() {
             const jetzt = new Date();
             const optionen = { 
@@ -26,35 +27,62 @@ const char index_html[] PROGMEM = R"rawliteral(
             };
             document.getElementById('zeit').innerHTML = jetzt.toLocaleDateString('de-DE', optionen);
         }
-
+    
         function updateSensorData() {
             fetch('/sensors')
             .then(response => response.json())
             .then(data => {
-                document.getElementById('temperature').textContent = data.temperature.toFixed(1);
-                document.getElementById('humidity').textContent = data.humidity.toFixed(1);
-                document.getElementById('pressure').textContent = data.pressure.toFixed(1);
-                
+                // ESP32 Daten (bei "alle" oder "esp32")
+                if (currentView === 'alle' || currentView === 'esp32') {
+                    document.getElementById('temperature').textContent = data.temperature.toFixed(1);
+                    document.getElementById('humidity').textContent = data.humidity.toFixed(1);
+                    document.getElementById('pressure').textContent = data.pressure.toFixed(1);
+                    document.getElementById('esp32-title').style.display = 'block';
+                    document.querySelectorAll('.esp32-card').forEach(card => card.style.display =   'block');
+                } else {
+                    document.getElementById('esp32-title').style.display = 'none';
+                    document.querySelectorAll('.esp32-card').forEach(card => card.style.display =   'none');
+                }
+    
+                // Pico W Daten (bei "alle" oder "pico") - IMMER ANZEIGEN
+                if (currentView === 'alle' || currentView === 'pico') {
+                    document.getElementById('pico_temperature').textContent = (data.pico_temperature ||     0).toFixed(1);
+                    document.getElementById('pico_humidity').textContent = (data.pico_humidity || 0).   toFixed(1);
+                    document.getElementById('pico_pressure').textContent = (data.pico_pressure || 0).   toFixed(1);
+                    document.getElementById('pico-title').style.display = 'block';
+                    document.querySelectorAll('.pico-card').forEach(card => card.style.display =    'block');
+                } else {
+                    document.getElementById('pico-title').style.display = 'none';
+                    document.querySelectorAll('.pico-card').forEach(card => card.style.display =    'none');
+                }
+    
                 document.getElementById('wetter').textContent = data.weather;
                 
                 const now = new Date();
                 document.getElementById('last-update').textContent = now.toLocaleTimeString('de-DE');
                 
-                document.querySelector('.status-indicator').style.backgroundColor = '#4CAF50';
-                document.getElementById('status-text').textContent = 'Verbunden';
+                // Status nur nach Auswahl
+                if (currentView === 'alle') {
+                    document.querySelector('.status-indicator').style.backgroundColor = '#4CAF50';
+                    document.getElementById('status-text').textContent = 'Alle Sensoren';
+                } else if (currentView === 'esp32') {
+                    document.querySelector('.status-indicator').style.backgroundColor = '#2196F3';
+                    document.getElementById('status-text').textContent = 'ESP32 Indoor';
+                } else if (currentView === 'pico') {
+                    document.querySelector('.status-indicator').style.backgroundColor = '#ff9800';
+                    document.getElementById('status-text').textContent = 'Pico Outdoor';
+                }
             })
             .catch(error => {
                 console.error('Fehler:', error);
-                document.getElementById('temperature').textContent = '--';
-                document.getElementById('humidity').textContent = '--';
-                document.getElementById('pressure').textContent = '--';
-                document.getElementById('wetter').textContent = 'Nicht verfügbar';
-                
+                document.querySelectorAll('.esp32-title, .pico-title, .esp32-card, .pico-card').forEach (el => {
+                    el.style.display = 'none';
+                });
                 document.querySelector('.status-indicator').style.backgroundColor = '#f44336';
                 document.getElementById('status-text').textContent = 'Verbindungsfehler';
             });
         }
-
+    
         function updateSDChart() {
             fetch('/sd-data')
             .then(response => response.json())
@@ -64,7 +92,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                         let parts = line.split(';');
                         if (parts.length >= 4) {
                             return {
-                                ts: parseInt(parts[0]) || 0,
+                                ts: Date.parse(parts[0]) || Date.now(),
                                 temp: parseFloat(parts[1]) || 0,
                                 hum: parseFloat(parts[2]) || 0,
                                 press: parseFloat(parts[3]) || 0
@@ -72,7 +100,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                         }
                         return null;
                     }).filter(row => row && !isNaN(row.temp));
-
+    
                     if (chartData.length > 0) {
                         document.getElementById('sdStats').innerHTML = 
                             `⌀ ${chartData.length} Werte | ` +
@@ -80,7 +108,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                             `${Math.max(...chartData.map(d=>d.temp)).toFixed(1)}°C | ` +
                             `💧 ${Math.min(...chartData.map(d=>d.hum)).toFixed(0)} - ` +
                             `${Math.max(...chartData.map(d=>d.hum)).toFixed(0)}%`;
-
+    
                         updateChart();
                     }
                 } else {
@@ -91,7 +119,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 document.getElementById('sdStats').innerHTML = 'SD nicht verfügbar';
             });
         }
-
+    
         function updateChart() {
             const ctx = document.getElementById('sdChart').getContext('2d');
             
@@ -102,10 +130,9 @@ const char index_html[] PROGMEM = R"rawliteral(
             sdChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: chartData.map((d, i) => {
-                        let hours = Math.floor(d.ts / 3600000);
-                        let mins = Math.floor((d.ts % 3600000) / 60000);
-                        return `${hours}h${mins.toString().padStart(2,'0')}`;
+                    labels: chartData.map(d => {
+                        let date = new Date(d.ts);
+                        return date.toLocaleTimeString('de-DE', {hour: '2-digit', minute:'2-digit'});
                     }),
                     datasets: [{
                         label: 'Temperatur (°C)',
@@ -139,28 +166,43 @@ const char index_html[] PROGMEM = R"rawliteral(
                             ticks: { color: '#ccc' },
                             grid: { color: 'rgba(255,255,255,0.1)' }
                         }
-                    },
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
                     }
                 }
             });
         }
-
+    
+        function changeSensorView(view) {
+            currentView = view;
+            document.getElementById('raumAuswahl').value = view;
+            
+            // Status sofort aktualisieren
+            if (view === 'alle') {
+                document.querySelector('.status-indicator').style.backgroundColor = '#4CAF50';
+                document.getElementById('status-text').textContent = 'Alle Sensoren';
+            } else if (view === 'esp32') {
+                document.querySelector('.status-indicator').style.backgroundColor = '#2196F3';
+                document.getElementById('status-text').textContent = 'ESP32 Indoor';
+            } else if (view === 'pico') {
+                document.querySelector('.status-indicator').style.backgroundColor = '#ff9800';
+                document.getElementById('status-text').textContent = 'Pico Outdoor';
+            }
+            
+            updateSensorData();
+        }
+    
         window.onload = function() {
             zeitAktualisieren();
             updateSensorData();
             updateSDChart();
             
-            setInterval(zeitAktualisieren, 60000);
-            setInterval(updateSensorData, 60000);
-            setInterval(updateSDChart, 30000);
+            setInterval(zeitAktualisieren, 60000);      // 1 Minute
+            setInterval(updateSensorData, 5000);        // 5 Sekunden
+            setInterval(updateSDChart, 300000);         // 5 Minuten
         }
     </script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&   display=swap');
 
         * {
             margin: 0;
@@ -214,7 +256,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
 
         .content-wrapper {
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 0 auto;
             position: relative;
             z-index: 1;
@@ -363,41 +405,91 @@ const char index_html[] PROGMEM = R"rawliteral(
             color: white;
         }
 
-        /* 🔥 Grid für SD-Kachel */
+        /* 🔥 GRID SYSTEM - ALLE Karten direkt im Grid */
         .sensor-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            grid-template-rows: auto auto auto auto auto auto auto auto auto;
             gap: 25px;
+            margin-bottom: 30px;
             animation: slideUp 0.8s ease-out;
         }
 
-        @media (min-width: 769px) {
-            .sensor-grid {
-                grid-template-columns: repeat(3, 1fr);
-                grid-template-rows: auto auto;
-            }
-            .sensor-card.full-width {
-                grid-column: 1 / -1;
-                grid-row: 2;
-            }
+        /* 🔥 GRUPPEN TITEL */
+        .esp32-title { 
+            grid-column: 1 / -1;
+            font-size: 1.4em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding: 12px 0;
+            border-bottom: 2px solid rgba(33, 150, 243, 0.5);
+            color: #2196F3;
+            opacity: 0.95;
+            text-align: center;
+            grid-row: 1;
         }
 
-        @media (max-width: 768px) {
-            .sensor-grid {
-                grid-template-columns: 1fr;
-                grid-template-rows: auto auto auto auto;
-            }
-            .sensor-card.full-width {
-                grid-column: 1;
-                grid-row: 4;
-            }
+        .pico-title { 
+            grid-column: 1 / -1;
+            font-size: 1.4em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding: 12px 0;
+            border-bottom: 2px solid rgba(255, 152, 0, 0.5);
+            color: #ff9800;
+            opacity: 0.95;
+            text-align: center;
+            grid-row: 5;
         }
 
+        /* 🔥 ESP32 Karten */
+        .esp32-card:nth-of-type(1) { 
+            grid-row: 2;
+            background: linear-gradient(135deg, rgba(146, 114, 245, 0.25) 0%, rgba(146, 114, 245, 0.    08) 100%);
+        }
+        .esp32-card:nth-of-type(2) { 
+            grid-row: 3;
+            background: linear-gradient(135deg, rgba(17, 179, 248, 0.25) 0%, rgba(17, 179, 248, 0.08)   100%);
+        }
+        .esp32-card:nth-of-type(3) { 
+            grid-row: 4;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(16, 185, 129, 0.08)   100%);
+        }
+
+        /* 🔥 Pico Karten */
+        .pico-card:nth-of-type(1) { 
+            grid-row: 6;
+            background: linear-gradient(135deg, rgba(255,152,0,0.25) 0%, rgba(255,152,0,0.08) 100%);
+        }
+        .pico-card:nth-of-type(2) { 
+            grid-row: 7;
+            background: linear-gradient(135deg, rgba(255,193,7,0.25) 0%, rgba(255,193,7,0.08) 100%);
+        }
+        .pico-card:nth-of-type(3) { 
+            grid-row: 8;
+            background: linear-gradient(135deg, rgba(255,235,59,0.25) 0%, rgba(255,235,59,0.08) 100%);
+        }
+
+        /* 🔥 Chart immer ganz unten */
+        .sensor-card.full-width {
+            background: linear-gradient(135deg, rgba(255,193,7,0.25) 0%, rgba(255,193,7,0.08) 100%);
+            grid-column: 1 / -1 !important;
+            grid-row: 9 !important;
+            order: 999;
+        }
+
+        .sensor-card.full-width canvas {
+            max-height: 200px;
+            border-radius: 15px;
+            margin: 15px 0;
+        }
+
+        /* 🔥 SENOR KARTEN */
         .sensor-card {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.08);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 25px;
             padding: 35px 30px;
             text-align: center;
@@ -425,33 +517,9 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         .sensor-card:hover {
             transform: translateY(-10px) scale(1.02);
-            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.5);
-            border-color: rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .sensor-card:nth-child(1) {
-            background: linear-gradient(135deg, rgba(146, 114, 245, 0.2) 0%, rgba(146, 114, 245, 0.05) 100%);
-        }
-        
-        .sensor-card:nth-child(2) {
-            background: linear-gradient(135deg, rgba(17, 179, 248, 0.2) 0%, rgba(17, 179, 248, 0.05) 100%);
-        }
-        
-        .sensor-card:nth-child(3) {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.05) 100%);
-        }
-
-        /* 🔥 SD-Chart Kachel */
-        .sensor-card.full-width {
-            background: linear-gradient(135deg, rgba(255,193,7,0.2) 0%, rgba(255,193,7,0.05) 100%);
-            grid-column: 1 / -1 !important;
-        }
-
-        .sensor-card.full-width canvas {
-            max-height: 180px;
-            border-radius: 15px;
-            margin: 15px 0;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            border-color: rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.12);
         }
 
         .sensor-icon {
@@ -488,35 +556,31 @@ const char index_html[] PROGMEM = R"rawliteral(
             opacity: 0.7;
         }
 
-        @media (max-width: 768px) {
-            body {
-                padding: 20px 15px;
-            }
-
-            .welcome-card {
-                padding: 30px 25px;
-            }
-
-            h1 {
-                font-size: 2em;
-            }
-
+        /* 🔥 RESPONSIVE */
+        @media (min-width: 769px) {
             .sensor-grid {
+                grid-template-columns: repeat(3, 1fr);
+                grid-template-rows: repeat(9, auto);
+            }
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 20px 15px; }
+            .welcome-card { padding: 30px 25px; }
+            h1 { font-size: 2em; }
+            .sensor-grid { 
                 grid-template-columns: 1fr;
-                gap: 15px;
+                gap: 20px;
             }
-
-            .sensor-card {
-                padding: 25px 20px;
-            }
-
-            .dashboard-header {
+            .sensor-card { padding: 25px 20px; }
+            .dashboard-header { 
                 flex-direction: column;
                 gap: 15px;
                 align-items: flex-start;
             }
         }
     </style>
+
 </head>
 <body>
     <div class="content-wrapper">
@@ -525,7 +589,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             <h1>Hallo Leni & Manu! 👋</h1>
             <div class="time-display" id="zeit">Lädt...</div>
             <p class="subtitle">
-                Willkommen zu Hause. Heute wird ein super Tag! Macht es euch gemütlich.
+                Willkommen zu Hause. Heute wird ein super Tag! Makes es euch gemütlich.
             </p>
             <div class="weather-badge">
                 <span class="weather-icon">🌤️</span>
@@ -535,13 +599,11 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         <!-- Dashboard Header -->
         <div class="dashboard-header">
-            <h2>📊 ESP32 Dashboard</h2>
-            <select class="dropdown" id="raumAuswahl">
-                <option value="alle">Alle Räume</option>
-                <option value="wohnzimmer">Wohnzimmer</option>
-                <option value="schlafzimmer">Schlafzimmer</option>
-                <option value="kueche">Küche</option>
-                <option value="bad">Badezimmer</option>
+            <h2>📊 Home Dashboard</h2>
+            <select class="dropdown" id="raumAuswahl" onchange="changeSensorView(this.value)">
+                <option value="alle">👥 Alle Sensoren</option>
+                <option value="esp32">💙 ESP32 Indoor</option>
+                <option value="pico">🧡 Pico W Outdoor</option>
             </select>
         </div>
 
@@ -551,27 +613,49 @@ const char index_html[] PROGMEM = R"rawliteral(
             <span id="status-text">Verbunden</span>
         </div>
 
-        <!-- Sensor Cards Grid -->
-        <div class="sensor-grid">
-            <div class="sensor-card">
+        <!-- 🔥 SENSOR GRID - FLACHES GRID SYSTEM -->
+        <div class="sensor-grid" id="sensor-container">
+            <!-- ESP32 Überschrift -->
+            <div class="esp32-title" id="esp32-title">💙 ESP32 Indoor</div>
+            
+            <!-- ESP32 Sensoren (3 Karten nebeneinander) -->
+            <div class="sensor-card esp32-card">
                 <div class="sensor-icon">🌡️</div>
                 <div class="sensor-label">Temperatur</div>
                 <div class="sensor-value"><span id="temperature">--</span>°C</div>
             </div>
-
-            <div class="sensor-card">
+            <div class="sensor-card esp32-card">
                 <div class="sensor-icon">💧</div>
                 <div class="sensor-label">Luftfeuchtigkeit</div>
                 <div class="sensor-value"><span id="humidity">--</span>%</div>
             </div>
-
-            <div class="sensor-card">
+            <div class="sensor-card esp32-card">
                 <div class="sensor-icon">🌬️</div>
                 <div class="sensor-label">Luftdruck</div>
                 <div class="sensor-value"><span id="pressure">--</span> hPa</div>
             </div>
 
-            <!-- 🔥 SD-DATEN KACHEL (letzte 48h) -->
+            <!-- Pico W Überschrift -->
+            <div class="pico-title" id="pico-title">🧡 Pico W Outdoor</div>
+            
+            <!-- Pico W Sensoren (3 Karten nebeneinander) -->
+            <div class="sensor-card pico-card">
+                <div class="sensor-icon">🌡️</div>
+                <div class="sensor-label">Temperatur</div>
+                <div class="sensor-value"><span id="pico_temperature">--</span>°C</div>
+            </div>
+            <div class="sensor-card pico-card">
+                <div class="sensor-icon">💧</div>
+                <div class="sensor-label">Luftfeuchtigkeit</div>
+                <div class="sensor-value"><span id="pico_humidity">--</span>%</div>
+            </div>
+            <div class="sensor-card pico-card">
+                <div class="sensor-icon">🌬️</div>
+                <div class="sensor-label">Luftdruck</div>
+                <div class="sensor-value"><span id="pico_pressure">--</span> hPa</div>
+            </div>
+
+            <!-- 🔥 SD-Chart (IMMER ganz unten) -->
             <div class="sensor-card full-width">
                 <div class="sensor-icon">📊</div>
                 <div class="sensor-label">SD-Log (letzte Messungen)</div>
