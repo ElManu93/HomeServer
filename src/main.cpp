@@ -257,7 +257,7 @@ void setup() {
         JsonDocument doc;
         doc["status"] = "ok";
         doc["lines"] = lineCount;
-        doc["data"] = csvData;  // Roh-CSV für Chart
+        doc["data"] = csvData;
 
         String response;
         serializeJson(doc, response);
