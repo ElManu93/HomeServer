@@ -7,6 +7,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "webserver.h"
+#include <time.h>
 
 // Sensor libraries
 #include <Wire.h>
@@ -54,6 +55,12 @@ float weatherTemp = 0.0;
 unsigned long lastWeatherUpdate = 0;
 const unsigned long weatherUpdateInterval = 600000; // 10 Minuten
 
+// Time
+String currentTime = "Lädt...";
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 3600;
+const int daylightOffset_sec = 3600;
+
 // Wetterdaten vom ESP32 abrufen
 void getWeatherData() {
     if (WiFi.status() == WL_CONNECTED) {
@@ -96,6 +103,19 @@ void getWeatherData() {
     }
 }
 
+void getDateTime() {
+    struct tm timeinfo;
+    
+    if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+    return;
+    }
+
+    char formattedTime[40];  // Buffer to store the formatted string
+    strftime(formattedTime, sizeof(formattedTime), "%d.%m.%Y %H:%M:%S", &timeinfo);
+    currentTime = formattedTime;
+}
+
 void logToSD() {
     if (!SD.begin(SD_CS)) {
         Serial.println("SD-Karte konnte nicht initialisiert werden!");
@@ -104,10 +124,9 @@ void logToSD() {
 
     File logFile = SD.open("/sensor_log.csv", FILE_APPEND);
     if (logFile) {
-        String dataString = String(millis()) + ";" + String(temperature) + ";" + String(humidity) + ";" + String(pressure) + "\n";
+        String dataString = currentTime + ";" + String(temperature) + ";" + String(humidity) + ";" + String(pressure) + "\n";
         logFile.print(dataString);
         logFile.close();
-        Serial.println("Daten in SD-Karte geloggt");
     } 
     else {
         Serial.println("Fehler beim Öffnen der Log-Datei!");
@@ -122,7 +141,10 @@ void getSensorData() {
     humidity = humEvent.relative_humidity * humScale + humOffset;
     pressure = bmp.readPressure() / 100.0F;
 
-    Serial.print("Temp: "); Serial.print(temperature);
+    getDateTime();
+
+    Serial.print("Time: "); Serial.print(currentTime);
+    Serial.print(" | Temp: "); Serial.print(temperature);
     Serial.print("C | Hum: "); Serial.print(humidity);
     Serial.print("% | Pressure: "); Serial.print(pressure);
     Serial.println(" hPa");
@@ -194,6 +216,10 @@ void setup() {
     Serial.println("\nWiFi verbunden!");
     Serial.print("IP-Adresse: ");
     Serial.println(WiFi.localIP());
+
+    // Zeit des Starts holen
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    getDateTime();
 
     // SD-Karte initialisieren
     setupSD();

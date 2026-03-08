@@ -154,7 +154,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             updateSDChart();
             
             setInterval(zeitAktualisieren, 60000);
-            setInterval(updateSensorData, 10000);
+            setInterval(updateSensorData, 60000);
             setInterval(updateSDChart, 30000);
         }
     </script>
