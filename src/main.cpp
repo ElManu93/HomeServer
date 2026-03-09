@@ -41,6 +41,10 @@ float picoTemperature = 0.0;
 float picoHumidity = 0.0;
 float picoPressure = 0.0;
 
+char response[256];
+unsigned long lastMeasurement = 0;
+const unsigned long measurementInterval = 60000; // 60 Sekunden
+
 // WiFi credentials
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
@@ -52,15 +56,21 @@ AsyncWebServer server(80);
 #define SD_SCK 12
 #define SD_MISO 13
 #define SD_MOSI 11
+char dataString[128];
+
+char csvData[8192] = "";
+char line[128];
+
+char csvResponse[4096];
 
 // Weather API
-String weatherDescription = "Lädt...";
+char weatherDescription[64] = "Loading...";
 float weatherTemp = 0.0;
 unsigned long lastWeatherUpdate = 0;
 const unsigned long weatherUpdateInterval = 6000000; // 100 Minuten
 
 // Time
-String currentTime = "Lädt...";
+char currentTime[32] = "Loading...";
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 3600;
 const int daylightOffset_sec = 0;
@@ -70,40 +80,50 @@ void getWeatherData() {
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
         
-        String url = "http://api.openweathermap.org/data/2.5/weather?q=Mannheim&appid=";
-        url += WEATHER_API_KEY;
-        url += "&units=metric&lang=de";
+        char url[256];
+        snprintf(
+            url,
+            sizeof(url),
+            "http://api.openweathermap.org/data/2.5/weather?q=Mannheim&appid=%s&units=metric&lang=de",
+            WEATHER_API_KEY
+        );
         
         Serial.println("Hole Wetterdaten...");
         http.begin(url);
         int httpCode = http.GET();
         
         if (httpCode == 200) {
-            String payload = http.getString();
+            WiFiClient *stream = http.getStreamPtr();
             
             JsonDocument doc;
-            DeserializationError error = deserializeJson(doc, payload);
+            DeserializationError error = deserializeJson(doc, *stream);
             
             if (!error) {
                 weatherTemp = doc["main"]["temp"];
                 const char* description = doc["weather"][0]["description"];
-                weatherDescription = String((int)round(weatherTemp)) + "°C, " + String(description);
+                snprintf(
+                    weatherDescription,
+                    sizeof(weatherDescription),
+                    "%dC, %s",
+                    (int)round(weatherTemp),
+                    description
+                );
                 
                 Serial.print("Wetter aktualisiert: ");
                 Serial.println(weatherDescription);
             } else {
                 Serial.println("JSON Parse Fehler");
-                weatherDescription = "Fehler beim Parsen";
+                strncpy(weatherDescription, "Fehler beim Parsen", sizeof(weatherDescription));
             }
         } else {
             Serial.print("HTTP Fehler: ");
             Serial.println(httpCode);
-            weatherDescription = "Nicht verfügbar";
+            strncpy(weatherDescription, "Nicht verfuegbar", sizeof(weatherDescription));
         }
         
         http.end();
     } else {
-        weatherDescription = "Keine WiFi-Verbindung";
+        strncpy(weatherDescription, "Keine WiFi-Verbindung", sizeof(weatherDescription));
     }
 }
 
@@ -117,18 +137,26 @@ void getDateTime() {
 
     char formattedTime[40];  // Buffer to store the formatted string
     strftime(formattedTime, sizeof(formattedTime), "%d.%m.%Y %H:%M:%S", &timeinfo);
-    currentTime = formattedTime;
+    strncpy(currentTime, formattedTime, sizeof(currentTime));
 }
 
 void logToSD() {
-    if (!SD.begin(SD_CS)) {
-        Serial.println("SD-Karte konnte nicht initialisiert werden!");
-        return;
-    }
-
     File logFile = SD.open("/sensor_log.csv", FILE_APPEND);
+
     if (logFile) {
-        String dataString = currentTime + ";" + String(temperature) + ";" + String(humidity) + ";" + String(pressure) + "\n";
+        snprintf(
+            dataString,
+            sizeof(dataString),
+            "%s;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f\n",
+            currentTime,
+            temperature,
+            humidity,
+            pressure,
+            picoTemperature,
+            picoHumidity,
+            picoPressure
+        );
+
         logFile.print(dataString);
         logFile.close();
     } 
@@ -171,13 +199,14 @@ void setupSD() {
     Serial.println("SD Card Ready!");
     
     // 2. Check data log file
-    String fileName = "/sensor_log.csv";
-    if (SD.exists(fileName.c_str())) {
+    const char* fileName = "/sensor_log.csv";
+
+    if (SD.exists(fileName)) {
         Serial.println("Log-file already exists.");
     } else {
-        File logFile = SD.open(fileName.c_str(), FILE_WRITE);
+        File logFile = SD.open(fileName, FILE_WRITE);
         if (logFile) {
-            logFile.println("Timestamp;Temperature;Humidity;Pressure");
+            logFile.println("Timestamp;Temperature;Humidity;Pressure;PicoTemperature;PicoHumidity;PicoPressure");
             logFile.close();
             Serial.println("Created log-file.");
         } else {
@@ -217,6 +246,9 @@ void setup() {
         Serial.print(".");
     }
     
+    WiFi.setAutoReconnect(true);
+    WiFi.persistent(true);
+    
     Serial.println("\nWiFi verbunden!");
     Serial.print("IP-Adresse: ");
     Serial.println(WiFi.localIP());
@@ -231,6 +263,9 @@ void setup() {
     // Erste Wetterdaten abrufen
     getWeatherData();
 
+    // Erste Sesordaten abrufen
+    getSensorData();
+
     // Route für die Hauptseite - INLINE HTML
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(200, "text/html", index_html);
@@ -238,7 +273,7 @@ void setup() {
 
     // API-Endpunkt für Sensordaten
     server.on("/sensors", HTTP_GET, [](AsyncWebServerRequest *request) {
-        getSensorData();
+        //getSensorData();
         
         // Wetter aktualisieren wenn nötig
         if (millis() - lastWeatherUpdate > weatherUpdateInterval) {
@@ -256,7 +291,6 @@ void setup() {
         doc["weather"] = weatherDescription;
         doc["timestamp"] = currentTime;
         
-        String response;
         serializeJson(doc, response);
         
         request->send(200, "application/json", response);
@@ -267,24 +301,28 @@ void setup() {
     });
     
     server.on("/sd-data", HTTP_GET, [](AsyncWebServerRequest *request) {
-        if (!SD.cardType()) {
-            request->send(500, "application/json", "{\"error\":\"SD nicht verfügbar\"}");
+        csvData[0] = '\0';   // Buffer reset
+        File file = SD.open("/sensor_log.csv", FILE_READ);
+
+        if (!file) {
+            request->send(500, "application/json", "{\"error\":\"Log-Datei nicht lesbar\"}");
             return;
         }
 
-        // Letzte 100 Zeilen lesen (≈48h bei 30s Intervall)
-        String csvData = "";
-        File file = SD.open("/sensor_log.csv", FILE_READ);
+        // Letzte 100 Zeilen lesen
         int lineCount = 0;
 
-        if (file) {
-            while (file.available() && lineCount < 100) {
-                String line = file.readStringUntil('\n');
-                if (line.startsWith("Timestamp") || line.length() < 10) continue;
-                csvData += line + "\n";
-                lineCount++;
-            }
-            file.close();
+        while (file.available() && lineCount < 100) {
+
+            size_t len = file.readBytesUntil('\n', line, sizeof(line)-1);
+            line[len] = '\0';
+
+            if (strncmp(line, "Timestamp", 9) == 0 || strlen(line) < 10) continue;
+
+            strncat(csvData, line, sizeof(csvData) - strlen(csvData) - 2);
+            strncat(csvData, "\n", sizeof(csvData) - strlen(csvData) - 1);
+
+            lineCount++;
         }
 
         JsonDocument doc;
@@ -292,9 +330,8 @@ void setup() {
         doc["lines"] = lineCount;
         doc["data"] = csvData;
 
-        String response;
-        serializeJson(doc, response);
-        request->send(200, "application/json", response);
+        serializeJson(doc, csvResponse);
+        request->send(200, "application/json", csvResponse);
     });
 
     // Pico W Daten empfangen (HTTP POST JSON)
@@ -305,13 +342,13 @@ void setup() {
         NULL,
         [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)   {
             // JSON-String bauen
-            String jsonString = String((char*)data, len);
-
-            Serial.println("Pico POST empfangen: " + jsonString);
+            Serial.print("Pico POST empfangen: ");
+            Serial.write(data, len);
+            Serial.println();
 
             // ArduinoJson parsen
             JsonDocument doc;
-            DeserializationError error = deserializeJson(doc, jsonString);
+            DeserializationError error = deserializeJson(doc, data, len);
 
             if (!error) {
                 picoTemperature = doc["temperature"] | 0.0;
@@ -328,9 +365,13 @@ void setup() {
 
     server.begin();
     Serial.println("HTTP-Server gestartet");
-    Serial.println("Oeffne im Browser: http://" + WiFi.localIP().toString());
 }
 
 void loop() {
-    delay(10);
+
+    if (millis() - lastMeasurement > measurementInterval) {
+        lastMeasurement = millis();
+        getSensorData();
+    }
+
 }
