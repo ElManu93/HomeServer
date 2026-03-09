@@ -1,4 +1,4 @@
-// html_page.h - KOMPLETTES HTML mit SD-Chart Kachel
+// html_page.h - KOMPLETTES HTML für Homeserver
 #ifndef HTML_PAGE_H
 #define HTML_PAGE_H
 
@@ -510,7 +510,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             <span id="status-text">Verbunden</span>
         </div>
 
-        <!-- 🔥 SENSOR GRID - FLACHES GRID SYSTEM -->
+        <!-- SENSOR GRID -->
         <div class="sensor-grid" id="sensor-container">
             <!-- ESP32 Überschrift -->
             <div class="esp32-title" id="esp32-title">ESP32</div>
@@ -554,7 +554,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
             <div class="divider"></div>
 
-            <!-- 🔥 SD-Chart (IMMER ganz unten) -->
+            <!-- 🔥 SD-Chart -->
             <div class="dashboard-header">
             <h2>📊 SD-Log</h2>
         </div>
