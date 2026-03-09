@@ -36,6 +36,10 @@ float temperature = 0.0;
 float humidity = 0.0;
 float pressure = 0.0;
 
+// Defintions for second sensor
+float picoTemperature = 0.0;
+float picoHumidity = 0.0;
+float picoPressure = 0.0;
 
 // WiFi credentials
 const char* ssid = WIFI_SSID;
@@ -53,7 +57,7 @@ AsyncWebServer server(80);
 String weatherDescription = "Lädt...";
 float weatherTemp = 0.0;
 unsigned long lastWeatherUpdate = 0;
-const unsigned long weatherUpdateInterval = 600000; // 10 Minuten
+const unsigned long weatherUpdateInterval = 6000000; // 100 Minuten
 
 // Time
 String currentTime = "Lädt...";
@@ -246,8 +250,11 @@ void setup() {
         doc["temperature"] = temperature;
         doc["humidity"] = humidity;
         doc["pressure"] = pressure;
+        doc["pico_temperature"] = picoTemperature;
+        doc["pico_humidity"] = picoHumidity;
+        doc["pico_pressure"] = picoPressure;
         doc["weather"] = weatherDescription;
-        doc["timestamp"] = millis();
+        doc["timestamp"] = currentTime;
         
         String response;
         serializeJson(doc, response);
@@ -289,6 +296,35 @@ void setup() {
         serializeJson(doc, response);
         request->send(200, "application/json", response);
     });
+
+    // Pico W Daten empfangen (HTTP POST JSON)
+    server.on("/api/pico", HTTP_POST, 
+        [](AsyncWebServerRequest *request) {
+            request->send(200, "application/json", "{\"status\":\"ok\"}");
+        },
+        NULL,
+        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)   {
+            // JSON-String bauen
+            String jsonString = String((char*)data, len);
+
+            Serial.println("Pico POST empfangen: " + jsonString);
+
+            // ArduinoJson parsen
+            JsonDocument doc;
+            DeserializationError error = deserializeJson(doc, jsonString);
+
+            if (!error) {
+                picoTemperature = doc["temperature"] | 0.0;
+                picoHumidity = doc["humidity"] | 0.0;
+                picoPressure = doc["pressure"] | 0.0;
+
+                Serial.printf("Pico: T=%.1f°C H=%.1f%% P=%.1f hPa\n", 
+                             picoTemperature, picoHumidity, picoPressure);
+            } else {
+                Serial.println("JSON Parse Fehler vom Pico");
+            }
+        }
+    );
 
     server.begin();
     Serial.println("HTTP-Server gestartet");
