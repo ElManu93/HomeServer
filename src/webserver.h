@@ -67,10 +67,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                     document.getElementById('status-text').textContent = 'Alle Sensoren';
                 } else if (currentView === 'esp32') {
                     document.querySelector('.status-indicator').style.backgroundColor = '#2196F3';
-                    document.getElementById('status-text').textContent = 'ESP32 Indoor';
+                    document.getElementById('status-text').textContent = 'ESP32';
                 } else if (currentView === 'pico') {
                     document.querySelector('.status-indicator').style.backgroundColor = '#ff9800';
-                    document.getElementById('status-text').textContent = 'Pico Outdoor';
+                    document.getElementById('status-text').textContent = 'Pico W';
                 }
             })
             .catch(error => {
@@ -181,10 +181,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                 document.getElementById('status-text').textContent = 'Alle Sensoren';
             } else if (view === 'esp32') {
                 document.querySelector('.status-indicator').style.backgroundColor = '#2196F3';
-                document.getElementById('status-text').textContent = 'ESP32 Indoor';
+                document.getElementById('status-text').textContent = 'ESP32';
             } else if (view === 'pico') {
                 document.querySelector('.status-indicator').style.backgroundColor = '#ff9800';
-                document.getElementById('status-text').textContent = 'Pico Outdoor';
+                document.getElementById('status-text').textContent = 'Pico W';
             }
             
             updateSensorData();
@@ -353,6 +353,21 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     .pico-title{
     color:#ffb74d;
+    }
+
+    .divider{
+    grid-column:1/-1;
+    height:1px;
+    margin:10px 0 5px 0;
+
+    background:linear-gradient(
+    90deg,
+    transparent,
+    rgba(255,255,255,0.25),
+    transparent
+    );
+
+    opacity:0.6;
     }
 
     /* ---------- SENSOR CARDS ---------- */
@@ -537,10 +552,13 @@ const char index_html[] PROGMEM = R"rawliteral(
                 <div class="sensor-value"><span id="pico_pressure">--</span> hPa</div>
             </div>
 
+            <div class="divider"></div>
+
             <!-- 🔥 SD-Chart (IMMER ganz unten) -->
+            <div class="dashboard-header">
+            <h2>📊 SD-Log</h2>
+        </div>
             <div class="sensor-card full-width">
-                <div class="sensor-icon">📊</div>
-                <div class="sensor-label">SD-Log (letzte Messungen)</div>
                 <canvas id="sdChart"></canvas>
                 <div id="sdStats" style="font-size:1.1em;margin-top:10px;font-weight:500;color:#ffc107;">
                     Lädt...
