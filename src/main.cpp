@@ -58,10 +58,10 @@ AsyncWebServer server(80);
 #define SD_MOSI 11
 char dataString[128];
 
-char csvData[8192] = "";
+char csvData[12000] = "";
 char line[128];
 
-char csvResponse[4096];
+char csvResponse[12000];
 
 // Weather API
 char weatherDescription[64] = "Loading...";
@@ -136,7 +136,7 @@ void getDateTime() {
     }
 
     char formattedTime[40];  // Buffer to store the formatted string
-    strftime(formattedTime, sizeof(formattedTime), "%d.%m.%Y %H:%M:%S", &timeinfo);
+    strftime(formattedTime, sizeof(formattedTime), "%d.%m.%YT%H:%M:%S", &timeinfo);
     strncpy(currentTime, formattedTime, sizeof(currentTime));
 }
 
