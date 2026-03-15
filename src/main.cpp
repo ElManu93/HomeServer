@@ -136,7 +136,7 @@ void getDateTime() {
     }
 
     char formattedTime[40];  // Buffer to store the formatted string
-    strftime(formattedTime, sizeof(formattedTime), "%d.%m.%YT%H:%M:%S", &timeinfo);
+    strftime(formattedTime, sizeof(formattedTime), "%Y-%m-%dT%H:%M:%S", &timeinfo);
     strncpy(currentTime, formattedTime, sizeof(currentTime));
 }
 
